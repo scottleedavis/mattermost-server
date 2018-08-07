@@ -4,10 +4,13 @@
 package app
 
 import (
+	"image"
+	"io"
 	"strings"
 
 	"github.com/dyatlov/go-opengraph/opengraph"
 	"github.com/mattermost/mattermost-server/model"
+	"github.com/mattermost/mattermost-server/utils/markdown"
 )
 
 func (a *App) PreparePostListForClient(originalList *model.PostList) (*model.PostList, *model.AppError) {
@@ -71,15 +74,28 @@ func (a *App) PreparePostForClient(originalPost *model.Post) (*model.Post, *mode
 	post = a.PostWithProxyAddedToImageURLs(post)
 
 	if needImageDimensions || needOpenGraphData {
+		link := getFirstLinkInString(post.Message)
+
+		og, dimensions, err := getLinkMetadata(link)
+		if err != nil {
+			return post, err
+		}
+
 		if needImageDimensions {
-			post.ImageDimensions = []*model.PostImageDimensions{}
+			if dimensions != nil {
+				post.ImageDimensions = []*model.PostImageDimensions{dimensions}
+			} else {
+				post.ImageDimensions = []*model.PostImageDimensions{}
+			}
 		}
 
 		if needOpenGraphData {
-			post.OpenGraphData = []*opengraph.OpenGraph{}
+			if og != nil {
+				post.OpenGraphData = []*opengraph.OpenGraph{og}
+			} else {
+				post.OpenGraphData = []*opengraph.OpenGraph{}
+			}
 		}
-
-		// TODO
 	}
 
 	return post, nil
@@ -108,4 +124,63 @@ func (a *App) getCustomEmojisForPost(message string, reactions []*model.Reaction
 	}
 
 	return a.GetMultipleEmojiByName(names)
+}
+
+func getFirstLinkInString(str string) string {
+	var url string
+
+	markdown.Inspect(message, func(blockOrInline interface{}) bool {
+		switch v := blockOrInline.(type) {
+		case *markdown.ReferenceLink:
+			url = v.ReferenceDefinition.Desination()
+			return false
+		case *markdown.InlineLink:
+			url = v.Desination()
+			return false
+		case *markdown.Autolink:
+			url = v.Desination()
+			return false
+		default:
+			return true
+		}
+	})
+
+	return url
+}
+
+func getLinkMetadata(requestURL string) (*opengraph.OpenGraph, *PostImageDimensions, error) {
+	res, err := a.HTTPClient(false).Get(requestURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer consumeAndClose(res)
+
+	return parseLinkMetadata(requestURL, res.Body, res.Header.Get("Content-Type"))
+}
+
+func parseLinkMetadata(requestURL string, body io.Reader, contentType string) (*opengraph.OpenGraph, *model.PostImageDimensions, error) {
+	if strings.HasPrefix(contentType, "image") {
+		dimensions, err := parseImageDimensions(requestURL, body)
+		return nil, dimensions, err
+	} else if strings.HasPrefix(contentType, "text/html") {
+		return ParseOpenGraphMetadata(requestURL, body, contentType), nil, nil
+	} else {
+		// Not an image or web page with OpenGraph information
+		return nil, nil, nil
+	}
+}
+
+func parseImageDimensions(requestURL string, body io.Reader) (*model.PostImageDimensions, error) {
+	config, _, err := image.DecodeConfig(body)
+	if err != nil {
+		return nil, err
+	}
+
+	dimensions := &model.ImageDimensions{
+		URL:    requestURL,
+		Width:  config.Width,
+		Height: config.Height,
+	}
+
+	return dimensions, nil
 }

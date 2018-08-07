@@ -13,8 +13,6 @@ import (
 )
 
 func (a *App) GetOpenGraphMetadata(requestURL string) *opengraph.OpenGraph {
-	og := opengraph.NewOpenGraph()
-
 	res, err := a.HTTPClient(false).Get(requestURL)
 	if err != nil {
 		mlog.Error(fmt.Sprintf("GetOpenGraphMetadata request failed for url=%v with err=%v", requestURL, err.Error()))
@@ -22,8 +20,13 @@ func (a *App) GetOpenGraphMetadata(requestURL string) *opengraph.OpenGraph {
 	}
 	defer consumeAndClose(res)
 
-	contentType := res.Header.Get("Content-Type")
-	body := forceHTMLEncodingToUTF8(res.Body, contentType)
+	return GetOpenGraphMetadata(requestURL, res.Body, res.Header.Get("Content-Type"))
+}
+
+func (a *App) ParseOpenGraphMetadata(requestURL string, body io.Reader, contentType string) *opengraph.OpenGraph {
+	og := opengraph.NewOpenGraph()
+
+	body = forceHTMLEncodingToUTF8(body, contentType)
 
 	if err := og.ProcessHTML(body); err != nil {
 		mlog.Error(fmt.Sprintf("GetOpenGraphMetadata processing failed for url=%v with err=%v", requestURL, err.Error()))
