@@ -1709,7 +1709,7 @@ func TestGetUsersNotInTeam(t *testing.T) {
 	CheckNoError(t, resp)
 	//TODO-fix: the remindbot user exists during this stage in server startup...
 	//require.Len(t, rusers, 0, "should be no users")
-	require.Len(t, rusers, 1, "should be no users")
+	require.Len(t, rusers, 1, "should be 1 user")
 
 	rusers, resp = Client.GetUsersNotInTeam(teamId, 10000, 100, "")
 	CheckNoError(t, resp)
