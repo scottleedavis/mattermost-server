@@ -17,9 +17,9 @@ func RegisterAccountMigrationInterface(f func(*App) einterfaces.AccountMigration
 	accountMigrationInterface = f
 }
 
-var clusterInterface func(*App) einterfaces.ClusterInterface
+var clusterInterface func(*Server) einterfaces.ClusterInterface
 
-func RegisterClusterInterface(f func(*App) einterfaces.ClusterInterface) {
+func RegisterClusterInterface(f func(*Server) einterfaces.ClusterInterface) {
 	clusterInterface = f
 }
 
@@ -75,6 +75,12 @@ var jobsMigrationsInterface func(*App) tjobs.MigrationsJobInterface
 
 func RegisterJobsMigrationsJobInterface(f func(*App) tjobs.MigrationsJobInterface) {
 	jobsMigrationsInterface = f
+}
+
+var jobsPluginsInterface func(*App) tjobs.PluginsJobInterface
+
+func RegisterJobsPluginsJobInterface(f func(*App) tjobs.PluginsJobInterface) {
+	jobsPluginsInterface = f
 }
 
 var ldapInterface func(*App) einterfaces.LdapInterface
@@ -135,6 +141,6 @@ func (s *Server) initEnterprise() {
 		s.DataRetention = dataRetentionInterface(s.FakeApp())
 	}
 	if clusterInterface != nil {
-		s.Cluster = clusterInterface(s.FakeApp())
+		s.Cluster = clusterInterface(s)
 	}
 }

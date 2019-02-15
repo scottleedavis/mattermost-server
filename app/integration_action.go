@@ -31,59 +31,132 @@ import (
 )
 
 func (a *App) DoPostAction(postId, actionId, userId, selectedOption string) (string, *model.AppError) {
+	return a.DoPostActionWithCookie(postId, actionId, userId, &model.DoPostActionRequest{
+		SelectedOption: selectedOption,
+	})
+}
+
+
+func (a *App) DoPostActionWithCookie(postId, actionId, userId string, actionRequest *model.DoPostActionRequest) (string, *model.AppError) {
+	// the prop values that we need to retain/clear in replacement message to match the original
+	remove := []string{"override_username", "override_icon_url"}
+	retain := map[string]interface{}{}
+
+	upstreamURL := ""
+	rootPostId := ""
+	upstreamRequest := &model.PostActionIntegrationRequest{
+		UserId: userId,
+		PostId: postId,
+	}
+
+	// See if the post exists in the DB, if so ignore the cookie.
+	// Start all queries here for parallel execution
 	pchan := a.Srv.Store.Post().GetSingle(postId)
 	cchan := a.Srv.Store.Channel().GetForPost(postId)
-
 	result := <-pchan
 	if result.Err != nil {
-		return "", result.Err
-	}
-	post := result.Data.(*model.Post)
-
-	result = <-cchan
-	if result.Err != nil {
-		return "", result.Err
-	}
-	channel := result.Data.(*model.Channel)
-
-	action := post.GetAction(actionId)
-	if action == nil || action.Integration == nil {
-		return "", model.NewAppError("DoPostAction", "api.post.do_action.action_id.app_error", nil, fmt.Sprintf("action=%v", action), http.StatusNotFound)
-	}
-
-	request := &model.PostActionIntegrationRequest{
-		UserId:    userId,
-		ChannelId: post.ChannelId,
-		TeamId:    channel.TeamId,
-		PostId:    postId,
-		Type:      action.Type,
-		Context:   action.Integration.Context,
-	}
-
-	clientTriggerId, _, err := request.GenerateTriggerId(a.AsymmetricSigningKey())
-	if err != nil {
-		return "", err
-	}
-
-	u, e := url.Parse(action.Integration.URL)
-	if e == nil && u != nil && u.Scheme == "mattermost" {
-		switch u.Host {
-		case "remind":
-			a.UpdateReminder(post, action, userId, selectedOption)
+		if actionRequest.Cookie == "" {
+			return "", result.Err
 		}
-		return clientTriggerId, nil
+
+		// Get action metadata from the cookie
+		c := model.PostActionCookie{}
+		cookie, err := a.decryptActionCookie(actionRequest.Cookie)
+		if err != nil {
+			return "", model.NewAppError("DoPostAction", "api.post.do_action.action_integration.app_error", nil, "err="+err.Error(), http.StatusBadRequest)
+		}
+		err = json.Unmarshal([]byte(cookie), &c)
+		if err != nil {
+			return "", model.NewAppError("DoPostAction", "api.post.do_action.action_integration.app_error", nil, "err="+err.Error(), http.StatusBadRequest)
+		}
+		if c.Integration == nil {
+			return "", model.NewAppError("DoPostAction", "api.post.do_action.action_integration.app_error", nil, "no Integration in action cookie", http.StatusBadRequest)
+		}
+
+		if postId != c.PostId {
+			return "", model.NewAppError("DoPostAction", "api.post.do_action.action_integration.app_error", nil, "postId doesn't match", http.StatusBadRequest)
+		}
+
+		upstreamRequest.ChannelId = c.ChannelId
+		upstreamRequest.TeamId = c.TeamId
+		upstreamRequest.Type = c.Type
+		upstreamRequest.Context = c.Integration.Context
+
+		if c.Type == model.POST_ACTION_TYPE_SELECT {
+			upstreamRequest.DataSource = c.DataSource
+			if upstreamRequest.Context == nil {
+				upstreamRequest.Context = map[string]interface{}{}
+			}
+			upstreamRequest.Context["selected_option"] = actionRequest.SelectedOption
+		}
+
+		retain = c.RetainProps
+		remove = c.RemoveProps
+		rootPostId = c.RootPostId
+		upstreamURL = c.Integration.URL
+	} else {
+		// Get action metadata from the database
+		post := result.Data.(*model.Post)
+
+		result = <-cchan
+		if result.Err != nil {
+			return "", result.Err
+		}
+		channel := result.Data.(*model.Channel)
+
+		action := post.GetAction(actionId)
+		if action == nil || action.Integration == nil {
+			return "", model.NewAppError("DoPostAction", "api.post.do_action.action_id.app_error", nil, fmt.Sprintf("action=%v", action), http.StatusNotFound)
+		}
+
+		upstreamRequest.ChannelId = post.ChannelId
+		upstreamRequest.TeamId = channel.TeamId
+		upstreamRequest.Type = action.Type
+		upstreamRequest.Context = action.Integration.Context
+		
+		u, e := url.Parse(action.Integration.URL)
+		if e == nil && u != nil && u.Scheme == "mattermost" {
+			switch u.Host {
+			case "remind":
+				a.UpdateReminder(post, action, userId, actionRequest.SelectedOption)
+			}
+			clientTriggerId, _, _ := upstreamRequest.GenerateTriggerId(a.AsymmetricSigningKey())
+			return clientTriggerId, nil
+		}
+
+		if action.Type == model.POST_ACTION_TYPE_SELECT {
+			upstreamRequest.DataSource = action.DataSource
+			upstreamRequest.Context["selected_option"] = actionRequest.SelectedOption
+		}
+
+		retainPropKeys := []string{"override_username", "override_icon_url"}
+		for _, key := range retainPropKeys {
+			value, ok := post.Props[key]
+			if ok {
+				retain[key] = value
+			} else {
+				remove = append(remove, key)
+			}
+		}
+
+		if post.RootId == "" {
+			rootPostId = post.Id
+		} else {
+			rootPostId = post.RootId
+		}
+
+		upstreamURL = action.Integration.URL
 	}
 
-	if action.Type == model.POST_ACTION_TYPE_SELECT {
-		request.DataSource = action.DataSource
-		request.Context["selected_option"] = selectedOption
+	clientTriggerId, _, appErr := upstreamRequest.GenerateTriggerId(a.AsymmetricSigningKey())
+	if appErr != nil {
+		return "", appErr
 	}
 
-	resp, err := a.DoActionRequest(action.Integration.URL, request.ToJson())
-	if err != nil {
-		return "", err
+	resp, appErr := a.DoActionRequest(upstreamURL, upstreamRequest.ToJson())
+	if appErr != nil {
+		return "", appErr
 	}
-
 	defer resp.Body.Close()
 
 	var response model.PostActionIntegrationResponse
@@ -91,39 +164,30 @@ func (a *App) DoPostAction(postId, actionId, userId, selectedOption string) (str
 		return "", model.NewAppError("DoPostAction", "api.post.do_action.action_integration.app_error", nil, "err="+err.Error(), http.StatusBadRequest)
 	}
 
-	retainedProps := []string{"override_username", "override_icon_url"}
-
 	if response.Update != nil {
 		response.Update.Id = postId
 		response.Update.AddProp("from_webhook", "true")
-		for _, prop := range retainedProps {
-			if value, ok := post.Props[prop]; ok {
-				response.Update.Props[prop] = value
-			} else {
-				delete(response.Update.Props, prop)
-			}
+		for key, value := range retain {
+			response.Update.AddProp(key, value)
 		}
-		if _, err := a.UpdatePost(response.Update, false); err != nil {
-			return "", err
+		for _, key := range remove {
+			delete(response.Update.Props, key)
+		}
+		if _, appErr = a.UpdatePost(response.Update, false); appErr != nil {
+			return "", appErr
 		}
 	}
 
 	if response.EphemeralText != "" {
-		ephemeralPost := &model.Post{}
-		ephemeralPost.Message = model.ParseSlackLinksToMarkdown(response.EphemeralText)
-		ephemeralPost.ChannelId = post.ChannelId
-		ephemeralPost.RootId = post.RootId
-		if ephemeralPost.RootId == "" {
-			ephemeralPost.RootId = post.Id
+		ephemeralPost := &model.Post{
+			Message:   model.ParseSlackLinksToMarkdown(response.EphemeralText),
+			ChannelId: upstreamRequest.ChannelId,
+			RootId:    rootPostId,
+			UserId:    userId,
 		}
-		ephemeralPost.UserId = post.UserId
 		ephemeralPost.AddProp("from_webhook", "true")
-		for _, prop := range retainedProps {
-			if value, ok := post.Props[prop]; ok {
-				ephemeralPost.Props[prop] = value
-			} else {
-				delete(ephemeralPost.Props, prop)
-			}
+		for key, value := range retain {
+			ephemeralPost.AddProp(key, value)
 		}
 		a.SendEphemeralPost(userId, ephemeralPost)
 	}

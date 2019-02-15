@@ -47,6 +47,9 @@ func runServer(configFileLocation string, disableConfigWatch bool, usedPlatform 
 	options := []app.Option{
 		app.ConfigFile(configFileLocation),
 		app.RunJobs,
+		app.JoinCluster,
+		app.StartElasticsearch,
+		app.StartMetrics,
 	}
 	if disableConfigWatch {
 		options = append(options, app.DisableConfigWatch)
@@ -73,7 +76,7 @@ func runServer(configFileLocation string, disableConfigWatch bool, usedPlatform 
 	web.New(server, server.AppOptions, server.Router)
 
 	// If we allow testing then listen for manual testing URL hits
-	if server.Config().ServiceSettings.EnableTesting {
+	if *server.Config().ServiceSettings.EnableTesting {
 		manualtesting.Init(api)
 	}
 

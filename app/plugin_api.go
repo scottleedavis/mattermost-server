@@ -118,6 +118,10 @@ func (api *PluginAPI) GetTeam(teamId string) (*model.Team, *model.AppError) {
 	return api.app.GetTeam(teamId)
 }
 
+func (api *PluginAPI) SearchTeams(term string) ([]*model.Team, *model.AppError) {
+	return api.app.SearchAllTeams(term)
+}
+
 func (api *PluginAPI) GetTeamByName(name string) (*model.Team, *model.AppError) {
 	return api.app.GetTeamByName(name)
 }
@@ -158,6 +162,10 @@ func (api *PluginAPI) UpdateTeamMemberRoles(teamId, userId, newRoles string) (*m
 	return api.app.UpdateTeamMemberRoles(teamId, userId, newRoles)
 }
 
+func (api *PluginAPI) GetTeamStats(teamId string) (*model.TeamStats, *model.AppError) {
+	return api.app.GetTeamStats(teamId)
+}
+
 func (api *PluginAPI) CreateUser(user *model.User) (*model.User, *model.AppError) {
 	return api.app.CreateUser(user)
 }
@@ -169,6 +177,10 @@ func (api *PluginAPI) DeleteUser(userId string) *model.AppError {
 	}
 	_, err = api.app.UpdateActive(user, false)
 	return err
+}
+
+func (api *PluginAPI) GetUsers(options *model.UserGetOptions) ([]*model.User, *model.AppError) {
+	return api.app.GetUsers(options)
 }
 
 func (api *PluginAPI) GetUser(userId string) (*model.User, *model.AppError) {
@@ -387,6 +399,14 @@ func (api *PluginAPI) SendEphemeralPost(userId string, post *model.Post) *model.
 	return api.app.SendEphemeralPost(userId, post)
 }
 
+func (api *PluginAPI) UpdateEphemeralPost(userId string, post *model.Post) *model.Post {
+	return api.app.UpdateEphemeralPost(userId, post)
+}
+
+func (api *PluginAPI) DeleteEphemeralPost(userId string, post *model.Post) {
+	api.app.DeleteEphemeralPost(userId, post)
+}
+
 func (api *PluginAPI) DeletePost(postId string) *model.AppError {
 	_, err := api.app.DeletePost(postId, api.id)
 	return err
@@ -465,7 +485,7 @@ func (api *PluginAPI) GetFileInfo(fileId string) (*model.FileInfo, *model.AppErr
 }
 
 func (api *PluginAPI) GetFileLink(fileId string) (string, *model.AppError) {
-	if !api.app.Config().FileSettings.EnablePublicLink {
+	if !*api.app.Config().FileSettings.EnablePublicLink {
 		return "", model.NewAppError("GetFileLink", "plugin_api.get_file_link.disabled.app_error", nil, "", http.StatusNotImplemented)
 	}
 

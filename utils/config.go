@@ -45,13 +45,13 @@ var (
 
 func MloggerConfigFromLoggerConfig(s *model.LogSettings) *mlog.LoggerConfiguration {
 	return &mlog.LoggerConfiguration{
-		EnableConsole: s.EnableConsole,
+		EnableConsole: *s.EnableConsole,
 		ConsoleJson:   *s.ConsoleJson,
-		ConsoleLevel:  strings.ToLower(s.ConsoleLevel),
-		EnableFile:    s.EnableFile,
+		ConsoleLevel:  strings.ToLower(*s.ConsoleLevel),
+		EnableFile:    *s.EnableFile,
 		FileJson:      *s.FileJson,
-		FileLevel:     strings.ToLower(s.FileLevel),
-		FileLocation:  GetLogFileLocation(s.FileLocation),
+		FileLevel:     strings.ToLower(*s.FileLevel),
+		FileLocation:  GetLogFileLocation(*s.FileLocation),
 	}
 }
 
@@ -308,7 +308,7 @@ func fixEnvSettingsCase(in map[string]interface{}) (out map[string]interface{}, 
 			return nil
 		}
 
-		out := make(map[string]interface{}, len(in))
+		fixCaseOut := make(map[string]interface{}, len(in))
 
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
@@ -316,14 +316,14 @@ func fixEnvSettingsCase(in map[string]interface{}) (out map[string]interface{}, 
 			key := field.Name
 			if value, ok := in[strings.ToLower(key)]; ok {
 				if valueAsMap, ok := value.(map[string]interface{}); ok {
-					out[key] = fixCase(valueAsMap, field.Type)
+					fixCaseOut[key] = fixCase(valueAsMap, field.Type)
 				} else {
-					out[key] = value
+					fixCaseOut[key] = value
 				}
 			}
 		}
 
-		return out
+		return fixCaseOut
 	}
 
 	out = fixCase(in, reflect.TypeOf(model.Config{}))
@@ -390,8 +390,9 @@ func LoadConfig(fileName string) (*model.Config, string, map[string]interface{},
 		return nil, "", nil, appErr
 	}
 
-	needSave := len(config.SqlSettings.AtRestEncryptKey) == 0 || len(*config.FileSettings.PublicLinkSalt) == 0 ||
-		len(config.EmailSettings.InviteSalt) == 0
+	needSave := config.SqlSettings.AtRestEncryptKey == nil || len(*config.SqlSettings.AtRestEncryptKey) == 0 ||
+		config.FileSettings.PublicLinkSalt == nil || len(*config.FileSettings.PublicLinkSalt) == 0 ||
+		config.EmailSettings.InviteSalt == nil || len(*config.EmailSettings.InviteSalt) == 0
 
 	config.SetDefaults()
 
@@ -416,8 +417,9 @@ func LoadConfig(fileName string) (*model.Config, string, map[string]interface{},
 
 	if *config.FileSettings.DriverName == model.IMAGE_DRIVER_LOCAL {
 		dir := config.FileSettings.Directory
-		if len(dir) > 0 && dir[len(dir)-1:] != "/" {
-			config.FileSettings.Directory += "/"
+		dirString := *dir
+		if len(*dir) > 0 && dirString[len(dirString)-1:] != "/" {
+			*config.FileSettings.Directory += "/"
 		}
 	}
 
@@ -435,16 +437,17 @@ func GenerateClientConfig(c *model.Config, diagnosticId string, license *model.L
 	props["ExperimentalPrimaryTeam"] = *c.TeamSettings.ExperimentalPrimaryTeam
 	props["ExperimentalViewArchivedChannels"] = strconv.FormatBool(*c.TeamSettings.ExperimentalViewArchivedChannels)
 
-	props["EnableOAuthServiceProvider"] = strconv.FormatBool(c.ServiceSettings.EnableOAuthServiceProvider)
-	props["GoogleDeveloperKey"] = c.ServiceSettings.GoogleDeveloperKey
-	props["EnableIncomingWebhooks"] = strconv.FormatBool(c.ServiceSettings.EnableIncomingWebhooks)
-	props["EnableOutgoingWebhooks"] = strconv.FormatBool(c.ServiceSettings.EnableOutgoingWebhooks)
+	props["EnableOAuthServiceProvider"] = strconv.FormatBool(*c.ServiceSettings.EnableOAuthServiceProvider)
+	props["GoogleDeveloperKey"] = *c.ServiceSettings.GoogleDeveloperKey
+	props["ActionCookieSecret"] = *c.ServiceSettings.ActionCookieSecret
+	props["EnableIncomingWebhooks"] = strconv.FormatBool(*c.ServiceSettings.EnableIncomingWebhooks)
+	props["EnableOutgoingWebhooks"] = strconv.FormatBool(*c.ServiceSettings.EnableOutgoingWebhooks)
 	props["EnableCommands"] = strconv.FormatBool(*c.ServiceSettings.EnableCommands)
-	props["EnablePostUsernameOverride"] = strconv.FormatBool(c.ServiceSettings.EnablePostUsernameOverride)
-	props["EnablePostIconOverride"] = strconv.FormatBool(c.ServiceSettings.EnablePostIconOverride)
+	props["EnablePostUsernameOverride"] = strconv.FormatBool(*c.ServiceSettings.EnablePostUsernameOverride)
+	props["EnablePostIconOverride"] = strconv.FormatBool(*c.ServiceSettings.EnablePostIconOverride)
 	props["EnableUserAccessTokens"] = strconv.FormatBool(*c.ServiceSettings.EnableUserAccessTokens)
 	props["EnableLinkPreviews"] = strconv.FormatBool(*c.ServiceSettings.EnableLinkPreviews)
-	props["EnableTesting"] = strconv.FormatBool(c.ServiceSettings.EnableTesting)
+	props["EnableTesting"] = strconv.FormatBool(*c.ServiceSettings.EnableTesting)
 	props["EnableDeveloper"] = strconv.FormatBool(*c.ServiceSettings.EnableDeveloper)
 	props["PostEditTimeLimit"] = fmt.Sprintf("%v", *c.ServiceSettings.PostEditTimeLimit)
 	props["CloseUnusedDirectMessages"] = strconv.FormatBool(*c.ServiceSettings.CloseUnusedDirectMessages)
@@ -452,7 +455,9 @@ func GenerateClientConfig(c *model.Config, diagnosticId string, license *model.L
 	props["EnableTutorial"] = strconv.FormatBool(*c.ServiceSettings.EnableTutorial)
 	props["ExperimentalEnableDefaultChannelLeaveJoinMessages"] = strconv.FormatBool(*c.ServiceSettings.ExperimentalEnableDefaultChannelLeaveJoinMessages)
 	props["ExperimentalGroupUnreadChannels"] = *c.ServiceSettings.ExperimentalGroupUnreadChannels
-	props["ExperimentalEnablePostMetadata"] = strconv.FormatBool(*c.ExperimentalSettings.EnablePostMetadata)
+
+	// This setting is only temporary, so keep using the old setting name for the mobile and web apps
+	props["ExperimentalEnablePostMetadata"] = strconv.FormatBool(!*c.ExperimentalSettings.DisablePostMetadata)
 
 	if *c.ServiceSettings.ExperimentalChannelOrganization || *c.ServiceSettings.ExperimentalGroupUnreadChannels != model.GROUP_UNREAD_CHANNELS_DISABLED {
 		props["ExperimentalChannelOrganization"] = strconv.FormatBool(true)
@@ -463,17 +468,17 @@ func GenerateClientConfig(c *model.Config, diagnosticId string, license *model.L
 	props["ExperimentalEnableAutomaticReplies"] = strconv.FormatBool(*c.TeamSettings.ExperimentalEnableAutomaticReplies)
 	props["ExperimentalTimezone"] = strconv.FormatBool(*c.DisplaySettings.ExperimentalTimezone)
 
-	props["SendEmailNotifications"] = strconv.FormatBool(c.EmailSettings.SendEmailNotifications)
+	props["SendEmailNotifications"] = strconv.FormatBool(*c.EmailSettings.SendEmailNotifications)
 	props["SendPushNotifications"] = strconv.FormatBool(*c.EmailSettings.SendPushNotifications)
-	props["RequireEmailVerification"] = strconv.FormatBool(c.EmailSettings.RequireEmailVerification)
+	props["RequireEmailVerification"] = strconv.FormatBool(*c.EmailSettings.RequireEmailVerification)
 	props["EnableEmailBatching"] = strconv.FormatBool(*c.EmailSettings.EnableEmailBatching)
 	props["EnablePreviewModeBanner"] = strconv.FormatBool(*c.EmailSettings.EnablePreviewModeBanner)
 	props["EmailNotificationContentsType"] = *c.EmailSettings.EmailNotificationContentsType
 
-	props["ShowEmailAddress"] = strconv.FormatBool(c.PrivacySettings.ShowEmailAddress)
+	props["ShowEmailAddress"] = strconv.FormatBool(*c.PrivacySettings.ShowEmailAddress)
 
 	props["EnableFileAttachments"] = strconv.FormatBool(*c.FileSettings.EnableFileAttachments)
-	props["EnablePublicLink"] = strconv.FormatBool(c.FileSettings.EnablePublicLink)
+	props["EnablePublicLink"] = strconv.FormatBool(*c.FileSettings.EnablePublicLink)
 
 	props["AvailableLocales"] = *c.LocalizationSettings.AvailableLocales
 	props["SQLDriverName"] = *c.SqlSettings.DriverName
@@ -605,7 +610,7 @@ func GenerateLimitedClientConfig(c *model.Config, diagnosticId string, license *
 	props["BuildHashEnterprise"] = model.BuildHashEnterprise
 	props["BuildEnterpriseReady"] = model.BuildEnterpriseReady
 
-	props["SiteName"] = c.TeamSettings.SiteName
+	props["SiteName"] = *c.TeamSettings.SiteName
 	props["WebsocketURL"] = strings.TrimRight(*c.ServiceSettings.WebsocketURL, "/")
 	props["WebsocketPort"] = fmt.Sprintf("%v", *c.ServiceSettings.WebsocketPort)
 	props["WebsocketSecurePort"] = fmt.Sprintf("%v", *c.ServiceSettings.WebsocketSecurePort)
@@ -621,7 +626,7 @@ func GenerateLimitedClientConfig(c *model.Config, diagnosticId string, license *
 
 	props["EnableDiagnostics"] = strconv.FormatBool(*c.LogSettings.EnableDiagnostics)
 
-	props["EnableSignUpWithEmail"] = strconv.FormatBool(c.EmailSettings.EnableSignUpWithEmail)
+	props["EnableSignUpWithEmail"] = strconv.FormatBool(*c.EmailSettings.EnableSignUpWithEmail)
 	props["EnableSignInWithEmail"] = strconv.FormatBool(*c.EmailSettings.EnableSignInWithEmail)
 	props["EnableSignInWithUsername"] = strconv.FormatBool(*c.EmailSettings.EnableSignInWithUsername)
 
@@ -629,7 +634,7 @@ func GenerateLimitedClientConfig(c *model.Config, diagnosticId string, license *
 	props["EmailLoginButtonBorderColor"] = *c.EmailSettings.LoginButtonBorderColor
 	props["EmailLoginButtonTextColor"] = *c.EmailSettings.LoginButtonTextColor
 
-	props["EnableSignUpWithGitLab"] = strconv.FormatBool(c.GitLabSettings.Enable)
+	props["EnableSignUpWithGitLab"] = strconv.FormatBool(*c.GitLabSettings.Enable)
 
 	props["TermsOfServiceLink"] = *c.SupportSettings.TermsOfServiceLink
 	props["PrivacyPolicyLink"] = *c.SupportSettings.PrivacyPolicyLink
@@ -648,8 +653,7 @@ func GenerateLimitedClientConfig(c *model.Config, diagnosticId string, license *
 	props["DiagnosticId"] = diagnosticId
 	props["DiagnosticsEnabled"] = strconv.FormatBool(*c.LogSettings.EnableDiagnostics)
 
-	hasImageProxy := c.ServiceSettings.ImageProxyType != nil && *c.ServiceSettings.ImageProxyType != "" && c.ServiceSettings.ImageProxyURL != nil && *c.ServiceSettings.ImageProxyURL != ""
-	props["HasImageProxy"] = strconv.FormatBool(hasImageProxy)
+	props["HasImageProxy"] = strconv.FormatBool(*c.ImageProxySettings.Enable)
 
 	props["PluginsEnabled"] = strconv.FormatBool(*c.PluginSettings.Enable)
 
@@ -693,11 +697,11 @@ func GenerateLimitedClientConfig(c *model.Config, diagnosticId string, license *
 		}
 
 		if *license.Features.GoogleOAuth {
-			props["EnableSignUpWithGoogle"] = strconv.FormatBool(c.GoogleSettings.Enable)
+			props["EnableSignUpWithGoogle"] = strconv.FormatBool(*c.GoogleSettings.Enable)
 		}
 
 		if *license.Features.Office365OAuth {
-			props["EnableSignUpWithOffice365"] = strconv.FormatBool(c.Office365Settings.Enable)
+			props["EnableSignUpWithOffice365"] = strconv.FormatBool(*c.Office365Settings.Enable)
 		}
 
 		if *license.Features.CustomTermsOfService {

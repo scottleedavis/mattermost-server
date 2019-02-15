@@ -114,7 +114,7 @@ func (a *App) triggerReminders() {
 					"Message":     reminder.Message,
 				}
 
-				interactivePost := model.Post{
+				post := model.Post{
 					ChannelId:     channel.Id,
 					PendingPostId: model.NewId() + ":" + fmt.Sprint(model.GetMillis()),
 					UserId:        remindUser.Id,
@@ -187,9 +187,10 @@ func (a *App) triggerReminders() {
 					},
 				}
 
-				if _, pErr := a.CreatePostAsUser(&interactivePost, false); pErr != nil {
-					mlog.Error(fmt.Sprintf("%v", pErr))
-				}
+				a.SendEphemeralPost(
+					user.Id,
+					&post,
+				)
 
 				if occurrence.Repeat != "" {
 					a.RescheduleOccurrence(&occurrence)

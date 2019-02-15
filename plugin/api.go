@@ -55,6 +55,11 @@ type API interface {
 	// DeleteUser deletes a user.
 	DeleteUser(userId string) *model.AppError
 
+	// GetUsers a list of users based on search options.
+	//
+	// Minimum server version: 5.10
+	GetUsers(*model.UserGetOptions) ([]*model.User, *model.AppError)
+
 	// GetUser gets a user.
 	GetUser(userId string) (*model.User, *model.AppError)
 
@@ -143,6 +148,11 @@ type API interface {
 
 	// UpdateTeam updates a team.
 	UpdateTeam(team *model.Team) (*model.Team, *model.AppError)
+
+	// SearchTeams search a team.
+	//
+	// Minimum server version: 5.8
+	SearchTeams(term string) ([]*model.Team, *model.AppError)
 
 	// GetTeamsForUser returns list of teams of given user ID.
 	//
@@ -262,6 +272,12 @@ type API interface {
 	// SendEphemeralPost creates an ephemeral post.
 	SendEphemeralPost(userId string, post *model.Post) *model.Post
 
+	// UpdateEphemeralPost updates an ephemeral message previously sent to the user.
+	UpdateEphemeralPost(userId string, post *model.Post) *model.Post
+
+	// DeleteEphemeralPost deletes an ephemeral message previously sent to the user.
+	DeleteEphemeralPost(userId string, post *model.Post)
+
 	// DeletePost deletes a post.
 	DeletePost(postId string) *model.AppError
 
@@ -292,6 +308,11 @@ type API interface {
 	//
 	// Minimum server version: 5.6
 	GetPostsForChannel(channelId string, page, perPage int) (*model.PostList, *model.AppError)
+
+	// GetTeamStats gets a team's statistics
+	//
+	// Minimum server version: 5.8
+	GetTeamStats(teamId string) (*model.TeamStats, *model.AppError)
 
 	// UpdatePost updates a post.
 	UpdatePost(post *model.Post) (*model.Post, *model.AppError)
